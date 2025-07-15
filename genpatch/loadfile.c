@@ -39,6 +39,7 @@ int recAddr;
 #define getRecWord(n) (record[n] + record[(n) + 1] * 256)
 
 char validOMF51[] = "\x2\x4\x6\xe\x10\x12\x16\x18";
+char validOMF51K[] = "\x2\x4\x6\xe\x10\x12\x16\x18\x20\x22\x24\x70\x72";
 char validOMF85[] = "\x2\x4\x6\x8\xe\x10\x12\x16\x18\x20";
 char validOMF96[] = "\x2\x4\x6\x8\xe\x10\x12\x14\x16\x18\x20";
 
@@ -145,7 +146,7 @@ bool chkBin(FILE *fp) {
     for (;;) {
         int len  = getword(fp);
         int addr = getword(fp);
-        if (len < 0 || addr < 0 || addr + len >= 0xe000) // EOF reached or addr in ROM!!
+        if (len < 0 || addr < 0 || addr + len >= 0x10000) // EOF reached or addr in ROM!!
             return false;
         long here = ftell(fp);
         if (len == 0) { // possible end of BIN, check not too much following it
@@ -158,15 +159,20 @@ bool chkBin(FILE *fp) {
 
 /* determine the file type, fp is assumed to have been opened using "rb" */
 int fileType(FILE *fp, image_t *image) {
-    if (readOMF(fp) == MODHDR) {                 /* got a valid MODHDR */
+    int recType;
+    bool isOMF51K = false;
+    while ((recType = readOMF(fp)) == DEPLST)
+        isOMF51K = true;
+
+    if (recType == MODHDR) {                     /* got a valid MODHDR */
         uint8_t *p = record;                     // pick up the meta data here
         memcpy(image->name, p, min(*p, 40) + 1); // name
         p += *p + 1;
         image->mTrn = *p++;
 
         if (image->mTrn >= 0xfd) {
-            validOMF = validOMF51;
-            return AOMF51;
+            validOMF = isOMF51K ? validOMF51K : validOMF51;
+            return isOMF51K ? AOMF51K : AOMF51;
         } else if ((image->mTrn & 0xf0) == 0xe0) {
             validOMF = validOMF96;
             if (*p > 64) // shouldn't be > 64 chars
@@ -280,7 +286,7 @@ void loadImage(FILE *fp, image_t *image) {
 }
 
 void loadPadding(FILE *fp, image_t *image) {
-    int c;
+    int c = EOF;
     int addr = image->high;
     while (addr < MAXMEM + MAXAPPEND && (c = getc(fp)) != EOF) {
         image->mem[addr]   = c;

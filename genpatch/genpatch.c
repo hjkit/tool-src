@@ -38,7 +38,7 @@
 
 char *invokedBy;
 image_t inFile, targetFile;
-char *tokens[] = { "AOMF51", "AOMF85", "AOMF96", "ISISBIN", "HEX", "IMAGE", "TARGET", "SOURCE",
+char *tokens[] = { "AOMF51", "AOMF51K", "AOMF85", "AOMF96", "ISISBIN", "HEX", "IMAGE", "TARGET", "SOURCE",
                    "NAME",   "DATE",   "START",  "LOAD",    "TRN", "VER",   "MAIN",   "MASK" };
 
 _Noreturn void usage(char *fmt, ...) {

@@ -35,6 +35,7 @@ enum {
     CHANGE,
     APPEND,     // also start of patch keywords
     AOMF51,      // binary file types, also meta values
+    AOMF51K,
     AOMF85,
     AOMF96,
     ISISBIN,
@@ -64,6 +65,7 @@ enum {
 #define MODEND     4
 #define MODCONTENT 6
 #define MODEOF     0xe
+#define DEPLST     0x70
 
 #define mTRN       meta[TRN - TRN
 
