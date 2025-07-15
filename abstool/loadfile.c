@@ -40,14 +40,15 @@ int recAddr;
 #define getRecWord(n) (record[n] + record[(n) + 1] * 256)
 
 char validOMF51[] = "\x2\x4\x6\xe\x10\x12\x16\x18";
+char validOMF51K[] = "\x2\x4\x6\xe\x10\x12\x16\x18\x20\x22\x24\x70\x72";
 char validOMF85[] = "\x2\x4\x6\x8\xe\x10\x12\x16\x18\x20";
 char validOMF96[] = "\x2\x4\x6\x8\xe\x10\x12\x14\x16\x18\x20";
 
 
 
-char *validOMF    = validOMF85; // any will do as fixed after MODHDR (2)
+char *validOMF    = validOMF51K; // fixed after MODHDR (2)
 
-char *formats[]   = { "AOMF51", "AOMF85", "AOMF96", "ISISBIN", "HEX", "IMAGE" };
+char *formats[]   = { "AOMF51", "AOMF51K", "AOMF85", "AOMF96", "ISISBIN", "HEX", "IMAGE" };
 
 
 
@@ -159,15 +160,20 @@ bool chkBin(FILE *fp) {
 
 /* determine the file type, fp is assumed to have been opened using "rb" */
 int fileType(FILE *fp, image_t *image) {
-    if (readOMF(fp) == MODHDR) {                 /* got a valid MODHDR */
+    int recType;
+    bool isOMF51K = false;
+    while ((recType = readOMF(fp)) == DEPLST)
+        isOMF51K = true;
+
+    if (recType == MODHDR) {                     /* got a valid MODHDR */
         uint8_t *p = record;                     // pick up the meta data here
         memcpy(image->name, p, min(*p, 40) + 1); // name
         p += *p + 1;
         image->mTrn = *p++;
 
         if (image->mTrn >= 0xfd) {
-            validOMF = validOMF51;
-            return AOMF51;
+            validOMF = isOMF51K ? validOMF51K : validOMF51;
+            return isOMF51K ? AOMF51K : AOMF51;
         } else if ((image->mTrn & 0xf0) == 0xe0) {
             validOMF = validOMF96;
             if (*p > 64) // shouldn't be > 64 chars
@@ -232,6 +238,7 @@ void loadOMF(FILE *fp, image_t *image) {
 
     switch (image->source) {
     case AOMF51:
+    case AOMF51K:
         image->mMask = record[record[0] + 4];
         break;
     case AOMF85:
@@ -243,7 +250,7 @@ void loadOMF(FILE *fp, image_t *image) {
         image->mMain = record[0];
         break;
     }
-    if (image->source != AOMF51 && readOMF(fp) != MODEOF)
+    if (image->source != AOMF51 && image->source != AOMF51K && readOMF(fp) != MODEOF)
         warning("Missing AOMF MODEOF record");
 }
 
@@ -303,6 +310,7 @@ bool loadFile(char *file, image_t *image) {
 
     switch (image->source = fileType(fp, image)) {
     case AOMF51:
+    case AOMF51K:
     case AOMF85:
     case AOMF96:
         loadOMF(fp, image);
@@ -336,7 +344,7 @@ bool loadFile(char *file, image_t *image) {
             printf("%*sNAME='%.*s' TRN=%X", (int)(strlen(file) + 2), "", image->name[0], image->name + 1, image->mTrn);
             if (image->source == AOMF85)
                 printf(" VER=%02X", image->mVer);
-            if (image->source == AOMF51)
+            if (image->source == AOMF51 || image->source == AOMF51K)
                 printf(" MASK=%X", image->mMask);
             else
                 printf(" MAIN=%X", image->mMain);

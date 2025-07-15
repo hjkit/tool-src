@@ -94,7 +94,7 @@
 enum { PATCHADDRESS, PATCHVAL, APPENDVAL, METAOPT };
 int context    = PATCHADDRESS;
 
-char *tokens[] = { "APPEND", "AOMF51", "AOMF85", "AOMF96", "ISISBIN", "HEX",    "IMAGE", "TARGET",
+char *tokens[] = { "APPEND", "AOMF51", "AOMF51K", "AOMF85", "AOMF96", "ISISBIN", "HEX",    "IMAGE", "TARGET",
                    "SOURCE", "NAME",   "DATE", "START",  "LOAD",    "TRN",    "VER",   "MAIN",
                    "MASK",   "$START", "=",      "-",      "HEXBYTE",  "HEXWORD", "STRING", "EOL",   "ERROR" };
 
