@@ -38,8 +38,9 @@
 
 char *invokedBy;
 image_t inFile, targetFile;
-char *tokens[] = { "AOMF51", "AOMF51K", "AOMF85", "AOMF96", "ISISBIN", "HEX", "IMAGE", "TARGET", "SOURCE",
-                   "NAME",   "DATE",   "START",  "LOAD",    "TRN", "VER",   "MAIN",   "MASK" };
+char *tokens[] = { "AOMF51", "AOMF51K", "AOMF85", "AOMF96", "ISISBIN", "HEX",
+                   "IMAGE",  "TARGET",  "SOURCE", "NAME",   "DATE",    "START",
+                   "LOAD",   "TRN",     "VER",    "MAIN",   "MASK" };
 
 _Noreturn void usage(char *fmt, ...) {
 
@@ -50,12 +51,14 @@ _Noreturn void usage(char *fmt, ...) {
         va_end(args);
     }
     fprintf(stderr,
-            "\nusage: %s (-v | -V | -h)  | [-b addr]  infile targetfile [patchfile]\n"
+            "\nusage: %s (-v | -V | -h)  | [-l addr]  [-s | infile] targetfile [patchfile]\n"
             "Where -v/-V provide version information\n"
             "      -h       shows this help\n"
             "      -l addr  set explicit load address for binary image files. Default 100H (CP/M)\n"
+            "      -s       generate simple patch file from targetfile only\n"
             "Supported file formats are AOMF51, AOMF85, AOMF96 Intel Hex, Intel ISIS I binary and "
             "binary image\n"
+            "If infile is empty or a null device, targetfile is converted to a patch file\n"
             "If patchfile is omitted then the patch data is output to stdout\n",
             invokedBy);
     exit(fmt != NULL);
@@ -119,21 +122,21 @@ void genPatch(FILE *fp, image_t *src, image_t *dst, int useType, char *heading) 
     image_t *image;
     int bottom;
     int top;
-  
+
     if (useType == APPEND) {
-        image = dst; // for append the data in dst
+        image  = dst;       // for append the data in dst
         bottom = dst->high; // set the location limits
         top    = dst->high + dst->padLen;
     } else {
-        image  = src;   // for others the data is in the src image
-        bottom = src->low;  // set the patch area to look at
+        image  = src;      // for others the data is in the src image
+        bottom = src->low; // set the patch area to look at
         top    = src->high;
     }
 
     for (int addr = bottom; addr < top; addr += runlen) {
-        runlen = 1;     // assume single byte
-        if (image->use[addr] == useType) {  // look for the next occurrence
-            if (!haveSection) {             // if any data print heading once
+        runlen = 1;                        // assume single byte
+        if (image->use[addr] == useType) { // look for the next occurrence
+            if (!haveSection) {            // if any data print heading once
                 fprintf(fp, "%s\n", heading);
                 haveSection = true;
             }
@@ -198,9 +201,13 @@ void genPatch(FILE *fp, image_t *src, image_t *dst, int useType, char *heading) 
     CHANGE  - use dst image data as the new value, but show old value from src
     UNSET   - mark the value to be assumed uninitialised, show what data is being removed
 
-    For dst binary images a guess is made at what should be padding vs. real data 
+    For dst binary images a guess is made at what should be padding vs. real data
 */
 void markup(image_t *src, image_t *dst) {
+    if (src->low == src->high) {
+        src->low  = dst->low;
+        src->high = dst->high;
+    }
     if (src->low >= dst->high || src->high < dst->low)
         error("Input and target files don't have any memory in common");
 
@@ -218,12 +225,12 @@ void markup(image_t *src, image_t *dst) {
     // if not all the padding will be treated as patch data
     if (dst->source == IMAGE) {
         dst->padLen = 0;
-        while (dst->high > src->high) {     // mark any dst data after src end as being append
+        while (dst->high > src->high) { // mark any dst data after src end as being append
             dst->use[--dst->high] = APPEND;
-            dst->padLen++;                  // updates the pad count
+            dst->padLen++; // updates the pad count
         }
     }
-    for (; addr < dst->high; addr++) {  // process the common address space
+    for (; addr < dst->high; addr++) { // process the common address space
         if (addr >= src->high)
             src->use[addr] = SET; // add if not in source and before append
         else if (dst->use[addr] == SET) {
@@ -233,10 +240,10 @@ void markup(image_t *src, image_t *dst) {
         } else if (src->use[addr] == SET)
             src->use[addr] = UNSET;
     }
-    for (; addr < src->high; addr++)    // unset src data above dst end
+    for (; addr < src->high; addr++) // unset src data above dst end
         if (src->use[addr] == SET)
             src->use[addr] = UNSET;
-    if (src->high < dst->high)          // upper bound of patch area
+    if (src->high < dst->high) // upper bound of patch area
         src->high = dst->high;
 }
 
@@ -249,29 +256,36 @@ void genPatchFile(char *file, image_t *src, image_t *dst) {
         fprintf(stderr, "can't create patch file %s\n", file);
         return;
     }
-    // emit the meta data
-    fprintf(fp, "TARGET=%s SOURCE=%s", tokens[dst->source - AOMF51], tokens[src->source - AOMF51]);
-    if (dst->mStart >= 0 || src->mStart >= 0)
-        fprintf(fp, " START=%04X", dst->mStart >= 0 ? dst->mStart : src->mStart);
-    fprintf(fp, " LOAD=%04X\n", dst->mLoad);
-    if (dst->source <= AOMF96) {
-        fprintf(fp, "NAME='%.*s' TRN=%X", dst->name[0], dst->name + 1, dst->mTrn);
-        if (dst->source == AOMF85)
-            fprintf(fp, " VER=%02X", dst->mVer);
-        if (dst->source == AOMF51)
-            fprintf(fp, " MASK=%X", dst->mMask);
-        else
-            fprintf(fp, " MAIN=%X", dst->mMain);
-        if (dst->source == AOMF96)
-            fprintf(fp, "\nDATE='%.*s'", dst->date[0], dst->date + 1);
-        putc('\n', fp);
+    if (src->low == src->high) {
+        src->low  = dst->low;
+        src->high = dst->high;
+        markup(src, dst);
+        genPatch(fp, src, dst, SET, "; SIMPLE PATCH FILE");
+    } else {
+        // emit the meta data
+        fprintf(fp, "TARGET=%s SOURCE=%s", tokens[dst->source - AOMF51],
+                tokens[src->source - AOMF51]);
+        if (dst->mStart >= 0 || src->mStart >= 0)
+            fprintf(fp, " START=%04X", dst->mStart >= 0 ? dst->mStart : src->mStart);
+        fprintf(fp, " LOAD=%04X\n", dst->mLoad);
+        if (dst->source <= AOMF96) {
+            fprintf(fp, "NAME='%.*s' TRN=%X", dst->name[0], dst->name + 1, dst->mTrn);
+            if (dst->source == AOMF85)
+                fprintf(fp, " VER=%02X", dst->mVer);
+            if (dst->source == AOMF51)
+                fprintf(fp, " MASK=%X", dst->mMask);
+            else
+                fprintf(fp, " MAIN=%X", dst->mMain);
+            if (dst->source == AOMF96)
+                fprintf(fp, "\nDATE='%.*s'", dst->date[0], dst->date + 1);
+            putc('\n', fp);
+        }
+        markup(src, dst); // tag what needs to be done and put out patch data in a logical order
+        genPatch(fp, src, dst, CHANGE, "; PATCHES");
+        genPatch(fp, src, dst, UNSET, "; DELETIONS");
+        genPatch(fp, src, dst, SET, "; UNIITIALISED - RANDOM DATA");
+        genPatch(fp, src, dst, APPEND, "APPEND");
     }
-    markup(src, dst);   // tag what needs to be done and put out patch data in a logical order
-    genPatch(fp, src, dst, CHANGE, "; PATCHES");
-    genPatch(fp, src, dst, UNSET, "; DELETIONS");
-    genPatch(fp, src, dst, SET, "; UNIITIALISED - RANDOM DATA");
-    genPatch(fp, src, dst, APPEND, "APPEND");
-
     if (fp != stdout)
         fclose(fp);
 }
@@ -279,6 +293,7 @@ void genPatchFile(char *file, image_t *src, image_t *dst) {
 int main(int argc, char **argv) {
 
     invokedBy = getInvokeName(argv[0]);
+    bool needIn = true;
 
     CHK_SHOW_VERSION(argc, argv);
 
@@ -289,8 +304,6 @@ int main(int argc, char **argv) {
     resetMeta(&targetFile);
     inFile.source = targetFile.source = IMAGE;
     inFile.mLoad                      = 0x100;
-
-
 
     while (argc > 2 && argv[1][0] == '-') {
         if (strcmp(argv[1], "-l") == 0) {
@@ -305,17 +318,25 @@ int main(int argc, char **argv) {
                 }
             } else
                 usage("-l option missing address");
+        } else if (strcmp(argv[1], "-s") == 0) {
+            needIn = false;
         } else
             fprintf(stderr, "Skipping unknown option %s\n", argv[1]);
         argc--, argv++;
     }
-    targetFile.mLoad = inFile.mLoad; //
+    targetFile.mLoad = inFile.mLoad;
 
-    if (argc < 3 || argc > 4)
+    if (needIn) {
+        if (argc == 1)
+            usage("Missing input file");
+        if (!loadFile(argv[1], &inFile))
+            error("input file %s failed to load any data", argv[1]);
+        argc--, argv++;
+    } else
+        inFile.low  = inFile.high = 0; // mark as empty file
+    if (argc < 2 || argc > 3)
         usage("Incorrect number of files");
-    if (!loadFile(argv[1], &inFile))
-        error("input file %s failed to load any data", argv[1]);
-    if (!loadFile(argv[2], &targetFile))
-        error("target file %s failed to load any data", argv[2]);
-    genPatchFile(argc == 4 ? argv[3] : NULL, &inFile, &targetFile);
+    if (!loadFile(argv[1], &targetFile) || targetFile.low == targetFile.high)
+        error("target file %s failed to load any data", argv[1]);
+    genPatchFile(argc == 3 ? argv[2] : NULL, &inFile, &targetFile);
 }

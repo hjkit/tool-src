@@ -47,7 +47,7 @@ char validOMF96[] = "\x2\x4\x6\x8\xe\x10\x12\x14\x16\x18\x20";
 
 char *validOMF    = validOMF85; // any will do as fixed after MODHDR (2)
 
-char *formats[]   = { "AOMF51", "AOMF85", "AOMF96", "ISISBIN", "HEX", "IMAGE" };
+char *formats[]   = { "AOMF51", "AOMF51K", "AOMF85", "AOMF96", "ISISBIN", "HEX", "IMAGE" };
 
 
 
@@ -256,15 +256,22 @@ void loadOMF(FILE *fp, image_t *image) {
 void loadHex(FILE *fp, image_t *image) {
     rewind(fp);
     int type;
+    int implicitStart = -1;
     while ((type = readHex(fp)) >= 0) {
-        if (type == 0) /* data record */
-            addContent(image, recAddr, 0);
-        else {
+        implicitStart = -1;     // only allow implicitStart as last record
+        if (type == 0) { /* data record */
+            if (recLen)
+                addContent(image, recAddr, 0);
+            else
+                implicitStart = recAddr; 
+        } else {
             image->mStart = recAddr;
             return;
         }
     }
-    error("Intel Hex file missing end record");
+    if (implicitStart == -1)
+        error("Intel Hex file missing end record");
+    image->mStart = implicitStart > 0 ? implicitStart : -1;
 }
 
 /*
